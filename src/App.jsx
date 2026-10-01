@@ -46,7 +46,7 @@ function App() {
 
   // โหลด public/sales.csv อัตโนมัติตอนเปิดหน้า
   useEffect(() => {
-    Papa.parse('/sales.csv', {
+    Papa.parse(`${import.meta.env.BASE_URL}sales.csv`, {
       download: true,
       header: true,
       skipEmptyLines: true,
