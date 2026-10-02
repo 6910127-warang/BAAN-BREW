@@ -61,7 +61,6 @@ function App() {
       <main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-8 sm:px-6">
         <header>
           <h1 className="text-3xl font-bold">บ้านบรู Dashboard</h1>
-          <p className="mt-1 text-ink/60">ภาพรวมยอดขายจากไฟล์ CSV</p>
         </header>
 
         {error && (
