@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import Papa from 'papaparse'
-import UploadBox from './components/UploadBox'
 import Kpis from './components/Kpis'
 import DailySalesChart from './components/DailySalesChart'
 import BranchSalesChart from './components/BranchSalesChart'
@@ -64,8 +63,6 @@ function App() {
           <h1 className="text-3xl font-bold">บ้านบรู Dashboard</h1>
           <p className="mt-1 text-ink/60">ภาพรวมยอดขายจากไฟล์ CSV</p>
         </header>
-
-        <UploadBox fileName={loading ? '' : fileName} onParsed={handleParsed} onError={handleError} />
 
         {error && (
           <p role="alert" className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-red-800">
