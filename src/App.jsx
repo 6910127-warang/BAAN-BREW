@@ -3,7 +3,26 @@ import Papa from 'papaparse'
 import Kpis from './components/Kpis'
 import DailySalesChart from './components/DailySalesChart'
 import BranchSalesChart from './components/BranchSalesChart'
+import CustomerKpis from './components/CustomerKpis'
+import MemberGrowthChart from './components/MemberGrowthChart'
+import SimpleBarChart from './components/SimpleBarChart'
+import { BranchTable, TopMembersTable } from './components/MemberTables'
 import { buildDashboard, cleanHeader, cleanRows, findMissingColumns } from './lib/metrics'
+import { buildCustomerDashboard, cleanBranches, cleanCustomers } from './lib/customerMetrics'
+import { formatBaht, formatNumber } from './lib/format'
+
+// อ่าน CSV ใน public/ แล้วคืน rows เป็น Promise
+const loadCsv = (name) =>
+  new Promise((resolve, reject) => {
+    Papa.parse(`${import.meta.env.BASE_URL}${name}`, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: cleanHeader,
+      complete: (result) => resolve(result.data),
+      error: () => reject(new Error(name)),
+    })
+  })
 
 function App() {
   const [dashboard, setDashboard] = useState(null)
@@ -11,6 +30,10 @@ function App() {
   const [skipped, setSkipped] = useState(0)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [customerData, setCustomerData] = useState(null)
+  const [removedCustomers, setRemovedCustomers] = useState(0)
+  const [customerError, setCustomerError] = useState('')
+  const [salesRows, setSalesRows] = useState([])
 
   function handleParsed({ fileName, rows, fields }) {
     const missing = findMissingColumns(fields)
@@ -34,6 +57,7 @@ function App() {
     setError('')
     setFileName(fileName)
     setSkipped(cleaned.skipped)
+    setSalesRows(cleaned.rows)
     setDashboard(buildDashboard(cleaned.rows))
     setLoading(false)
   }
@@ -55,6 +79,34 @@ function App() {
       error: () => handleError('โหลด /sales.csv ไม่ได้ ตรวจว่ามีไฟล์ public/sales.csv'),
     })
   }, [])
+
+  // ข้อมูลสมาชิก: โหลด customers.csv + branches.csv แล้ว join กับแถวขายเมื่อ sales พร้อม
+  useEffect(() => {
+    if (!dashboard) return
+    let cancelled = false
+    Promise.all([loadCsv('customers.csv'), loadCsv('branches.csv')])
+      .then(([custRaw, branchRaw]) => {
+        if (cancelled) return
+        const { customers, removed } = cleanCustomers(custRaw)
+        setRemovedCustomers(removed)
+        setCustomerError('')
+        setCustomerData(
+          buildCustomerDashboard({
+            customers,
+            branches: cleanBranches(branchRaw),
+            salesRows,
+            firstDate: dashboard.firstDate,
+            lastDate: dashboard.lastDate,
+          }),
+        )
+      })
+      .catch((e) => {
+        if (!cancelled) setCustomerError(`โหลด ${e.message} ไม่ได้ ข้อมูลสมาชิกจึงไม่แสดง`)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [dashboard, salesRows])
 
   return (
     <div className="min-h-screen bg-paper text-ink">
@@ -80,6 +132,58 @@ function App() {
             <Kpis data={dashboard} />
             <DailySalesChart daily={dashboard.daily} />
             <BranchSalesChart branches={dashboard.branches} />
+          </>
+        )}
+
+        {customerError && (
+          <p role="alert" className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-red-800">
+            {customerError}
+          </p>
+        )}
+
+        {customerData && (
+          <>
+            <div>
+              <h2 className="text-2xl font-bold">สมาชิก</h2>
+              <p className="mt-1 text-sm text-ink/60">
+                ตัดสมาชิกที่เบอร์โทรซ้ำออก {formatNumber(removedCustomers)} คน
+                (ยอดขายของคนเหล่านี้ยังนับในยอดขายรวมและสัดส่วนสมาชิก แต่ไม่นับในสถิติรายคน)
+              </p>
+            </div>
+            <CustomerKpis data={customerData} />
+            <MemberGrowthChart joined={customerData.joined} />
+            <div className="grid gap-6 lg:grid-cols-2">
+              <SimpleBarChart
+                title="สมาชิกตามเพศ"
+                subtitle="จำนวนคน"
+                data={customerData.gender}
+                format={(v) => formatNumber(v)}
+                tooltipLabel="สมาชิก"
+              />
+              <SimpleBarChart
+                title="สมาชิกตามช่วงอายุ"
+                subtitle="จำนวนคน"
+                data={customerData.age}
+                format={(v) => formatNumber(v)}
+                tooltipLabel="สมาชิก"
+              />
+              <SimpleBarChart
+                title="ยอดซื้อเฉลี่ยต่อสมาชิก ตามช่วงอายุ"
+                subtitle="฿ ต่อคน (เฉพาะคนที่ซื้อ)"
+                data={customerData.avgByAge}
+                format={(v) => formatBaht(v)}
+                tooltipLabel="เฉลี่ยต่อคน"
+              />
+              <SimpleBarChart
+                title="ยอดขายตามประเภทสาขา"
+                subtitle="฿ รวมทุกสาขาในประเภทเดียวกัน"
+                data={customerData.salesByType}
+                format={(v) => formatBaht(v)}
+                tooltipLabel="ยอดขาย"
+              />
+            </div>
+            <BranchTable rows={customerData.branchRows} />
+            <TopMembersTable rows={customerData.top} />
           </>
         )}
       </main>
