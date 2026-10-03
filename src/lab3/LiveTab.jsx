@@ -1,31 +1,238 @@
-// Lab 3.2 · Dashboard แบบ real-time (สร้างด้วย Prompt 3.2B และ 3.2C ใน PROMPTS_LAB3.md)
-// ตอนนี้เป็นหน้าทดสอบการเชื่อมต่อจาก Lab 3.1 เท่านั้น
-import { useEffect, useState } from "react";
-import { collection, getCountFromServer } from "firebase/firestore";
-import { db, projectId } from "./firebase.js";
+// Lab 3.2 · Dashboard ยอดขายแบบ real-time จาก Firestore (collection "sales")
+// สูตรคำนวณทั้งหมดใช้จาก ../lib/metrics.js (cleanRows + buildDashboard) ไม่เขียนซ้ำ
+import { useEffect, useMemo, useRef, useState } from "react";
+import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { db, isConfigured } from "./firebase.js";
+import { addDays, todayBangkok } from "./time.js";
+import { BRANCHES } from "./saleModel.js";
+import { buildDashboard, cleanRows } from "../lib/metrics";
+import { formatBaht, formatNumber } from "../lib/format";
+import Kpis from "../components/Kpis";
+import DailySalesChart from "../components/DailySalesChart";
+import SimpleBarChart from "../components/SimpleBarChart";
+
+const RANGES = [
+  { id: "today", label: "วันนี้", back: 0 },
+  { id: "7d", label: "7 วัน", back: 6 },
+  { id: "30d", label: "30 วัน", back: 29 },
+];
+const HIGHLIGHT_MS = 4000;
+const RECENT_COUNT = 8;
+
+const ERROR_TEXT = {
+  "permission-denied": "Security Rules ไม่อนุญาตให้อ่านข้อมูลยอดขาย (ตรวจ Rules ใน Firebase Console)",
+  unavailable: "เชื่อมต่อ Firestore ไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่",
+  unauthenticated: "ต้องเข้าสู่ระบบก่อนจึงจะอ่านข้อมูลได้",
+  "failed-precondition": "Firestore ต้องการ index สำหรับ query นี้ ดูลิงก์สร้าง index ใน Console",
+};
+const errorMessage = (e) => ERROR_TEXT[e?.code] ?? `เกิดข้อผิดพลาด: ${e?.message ?? "ไม่ทราบสาเหตุ"}`;
 
 export default function LiveTab() {
-  const [state, setState] = useState({ status: "checking" });
+  const [rangeId, setRangeId] = useState("7d");
+  const [branch, setBranch] = useState("");
+  const [docs, setDocs] = useState([]); // [{ id, ...data }]
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [readCount, setReadCount] = useState(0);
+  const [fresh, setFresh] = useState(() => new Set());
+  const timers = useRef(new Set());
 
   useEffect(() => {
-    getCountFromServer(collection(db, "products"))
-      .then((s) => setState({ status: "ok", count: s.data().count }))
-      .catch((e) => setState({ status: "error", message: e.code === "permission-denied"
-        ? "Security Rules ไม่อนุญาตให้อ่าน (ตอนนี้ควรเป็นโหมดทดสอบ)"
-        : e.message }));
-  }, []);
+    if (!db) return undefined;
+    const { back } = RANGES.find((r) => r.id === rangeId);
+    const end = todayBangkok();
+    const start = addDays(end, -back);
+
+    const byId = new Map();
+    let first = true;
+    setLoading(true);
+    setError("");
+    setDocs([]);
+    setFresh(new Set());
+
+    const q = query(
+      collection(db, "sales"),
+      where("date", ">=", start),
+      where("date", "<=", end),
+      orderBy("date"),
+    );
+    const unsubscribe = onSnapshot(
+      q,
+      (snap) => {
+        const changes = snap.docChanges();
+        const added = [];
+        for (const c of changes) {
+          if (c.type === "removed") byId.delete(c.doc.id);
+          else byId.set(c.doc.id, { id: c.doc.id, ...c.doc.data() });
+          if (c.type === "added") added.push(c.doc.id);
+        }
+        setReadCount((n) => n + changes.length);
+        setDocs([...byId.values()]);
+        setLoading(false);
+
+        // ไฮไลต์เฉพาะรายการที่เข้ามาหลัง snapshot แรก
+        if (!first && added.length > 0) {
+          setFresh((prev) => new Set([...prev, ...added]));
+          const t = setTimeout(() => {
+            timers.current.delete(t);
+            setFresh((prev) => {
+              const next = new Set(prev);
+              added.forEach((id) => next.delete(id));
+              return next;
+            });
+          }, HIGHLIGHT_MS);
+          timers.current.add(t);
+        }
+        first = false;
+      },
+      (e) => {
+        setError(errorMessage(e));
+        setLoading(false);
+      },
+    );
+
+    return () => {
+      unsubscribe();
+      timers.current.forEach(clearTimeout);
+      timers.current.clear();
+    };
+  }, [rangeId]);
+
+  // กรองสาขาฝั่งเบราว์เซอร์
+  const visible = useMemo(() => (branch ? docs.filter((d) => d.branch === branch) : docs), [docs, branch]);
+  const dashboard = useMemo(() => buildDashboard(cleanRows(visible).rows), [visible]);
+  const hourly = useMemo(() => {
+    const sums = Array.from({ length: 24 }, (_, hour) => ({ hour, sales: 0 }));
+    for (const d of visible) {
+      const h = Number(d.hour);
+      if (h >= 0 && h < 24) sums[h].sales += Number(d.qty) * Number(d.unit_price);
+    }
+    return sums;
+  }, [visible]);
+  const recent = useMemo(
+    () => [...visible].sort((a, b) => String(b.datetime).localeCompare(String(a.datetime))).slice(0, RECENT_COUNT),
+    [visible],
+  );
+
+  if (!isConfigured) {
+    return (
+      <div className="rounded-lg border border-ink/15 bg-white p-6">
+        <p className="text-red-700">❌ ยังไม่ได้ตั้งค่า Firebase ใน .env (ดู .env.example)</p>
+      </div>
+    );
+  }
+
+  const isToday = rangeId === "today";
+  const empty = !loading && !error && visible.length === 0;
 
   return (
-    <div className="max-w-2xl rounded-xl bg-white p-6 ring-1 ring-stone-200">
-      <h1 className="text-2xl font-bold">ยอดขายสด · ยังไม่ได้สร้าง</h1>
-      <p className="mt-3">
-        {state.status === "checking" && "กำลังตรวจการเชื่อมต่อ…"}
-        {state.status === "ok" && (state.count === 40
-          ? `✅ เชื่อมต่อ Firestore โปรเจกต์ ${projectId} ได้ พบเมนู ${state.count} รายการ พร้อมทำ Lab 3.2`
-          : `⚠️ เชื่อมต่อได้ แต่พบเมนู ${state.count} รายการ (ควรเป็น 40) รัน npm run seed แล้วหรือยัง`)}
-        {state.status === "error" && <span className="text-red-700">❌ {state.message}</span>}
-      </p>
-      <p className="mt-4 text-sm text-stone-500">ขั้นต่อไป: ใช้ Prompt 3.2A–3.2C ใน PROMPTS_LAB3.md แทนที่ไฟล์นี้ด้วย Dashboard แบบ real-time</p>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-2xl font-bold">ยอดขายสด</h1>
+        <div role="group" aria-label="ช่วงเวลา" className="flex overflow-hidden rounded-lg border border-ink/15">
+          {RANGES.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              aria-pressed={rangeId === r.id}
+              onClick={() => setRangeId(r.id)}
+              className={`px-4 py-1.5 text-sm ${rangeId === r.id ? "bg-brew text-white" : "bg-white hover:bg-ink/5"}`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+        <select
+          aria-label="สาขา"
+          value={branch}
+          onChange={(e) => setBranch(e.target.value)}
+          className="rounded-lg border border-ink/15 bg-white px-3 py-1.5 text-sm"
+        >
+          <option value="">ทุกสาขา</option>
+          {BRANCHES.map((b) => (
+            <option key={b} value={b}>{b}</option>
+          ))}
+        </select>
+        <span className="ml-auto text-sm text-ink/60">อ่านข้อมูลแล้ว {formatNumber(readCount)} เอกสาร</span>
+      </div>
+
+      {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">❌ {error}</p>}
+      {loading && !error && <p className="text-ink/60">กำลังโหลดข้อมูล…</p>}
+      {empty && <p className="rounded-lg border border-ink/15 bg-white p-4 text-ink/70">ยังไม่มียอดขายในช่วงนี้</p>}
+
+      {!loading && !error && visible.length > 0 && (
+        <>
+          <Kpis data={dashboard} />
+
+          {isToday ? (
+            <section className="rounded-lg border border-ink/15 bg-white p-4 sm:p-6">
+              <h2 className="text-lg font-semibold">ยอดขายรายชั่วโมง</h2>
+              <p className="mb-4 text-sm text-ink/60">ยอดขายวันนี้แยกตามชั่วโมง (฿)</p>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={hourly} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                    <CartesianGrid stroke="#1f2a2e" strokeOpacity={0.1} vertical={false} />
+                    <XAxis dataKey="hour" tickFormatter={(h) => `${h}:00`} tick={{ fontSize: 12 }} tickLine={false} interval={2} />
+                    <YAxis tickFormatter={formatNumber} tick={{ fontSize: 12 }} tickLine={false} axisLine={false} width={56} />
+                    <Tooltip
+                      labelFormatter={(h) => `${h}:00 น.`}
+                      formatter={(v) => [formatBaht(v), "ยอดขาย"]}
+                      contentStyle={{ borderRadius: 8, border: "1px solid rgba(31,42,46,0.15)" }}
+                    />
+                    <Bar dataKey="sales" fill="#6d28d9" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+          ) : (
+            <DailySalesChart daily={dashboard.daily} />
+          )}
+
+          {!branch && (
+            <SimpleBarChart
+              title="ยอดขายแยกสาขา"
+              subtitle="ยอดขายรวมของแต่ละสาขาในช่วงที่เลือก (฿)"
+              data={dashboard.branches.map((b) => ({ label: b.branch, value: b.sales }))}
+              format={formatBaht}
+              tooltipLabel="ยอดขาย"
+            />
+          )}
+
+          <section className="rounded-lg border border-ink/15 bg-white p-4 sm:p-6">
+            <h2 className="text-lg font-semibold">รายการล่าสุด</h2>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-ink/60">
+                  <tr>
+                    <th className="py-2 pr-4 font-medium">เวลา</th>
+                    <th className="py-2 pr-4 font-medium">บิล</th>
+                    <th className="py-2 pr-4 font-medium">สาขา</th>
+                    <th className="py-2 pr-4 font-medium">เมนู</th>
+                    <th className="py-2 pr-4 text-right font-medium">จำนวน</th>
+                    <th className="py-2 text-right font-medium">ยอด</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recent.map((d) => (
+                    <tr
+                      key={d.id}
+                      className={`border-t border-ink/10 transition-colors duration-500 ${fresh.has(d.id) ? "bg-amber-100" : ""}`}
+                    >
+                      <td className="py-2 pr-4 tabular-nums">{String(d.datetime).slice(0, 16).replace("T", " ")}</td>
+                      <td className="py-2 pr-4">{d.order_id}</td>
+                      <td className="py-2 pr-4">{d.branch}</td>
+                      <td className="py-2 pr-4">{d.product_id}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums">{formatNumber(d.qty)}</td>
+                      <td className="py-2 text-right tabular-nums">{formatBaht(Number(d.qty) * Number(d.unit_price))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
     </div>
   );
 }
