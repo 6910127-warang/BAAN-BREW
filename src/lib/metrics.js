@@ -66,6 +66,7 @@ export function cleanRows(rawRows) {
       orderId,
       date,
       branch: String(r.branch ?? '').trim() || 'ไม่ระบุสาขา',
+      productId: String(r.product_id ?? '').trim(),
       lineTotal: qty * unitPrice,
       customerId: customerId || null,
     })

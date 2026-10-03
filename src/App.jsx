@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Papa from 'papaparse'
 import Kpis from './components/Kpis'
 import DailySalesChart from './components/DailySalesChart'
@@ -9,6 +9,8 @@ import SimpleBarChart from './components/SimpleBarChart'
 import { BranchTable, TopMembersTable } from './components/MemberTables'
 import { buildDashboard, cleanHeader, cleanRows, findMissingColumns } from './lib/metrics'
 import { buildCustomerDashboard, cleanBranches, cleanCustomers } from './lib/customerMetrics'
+import Lab2Page from './lab2/Lab2Page'
+import { toLab2Rows } from './lab2/lab2Utils'
 import { formatBaht, formatNumber } from './lib/format'
 
 // อ่าน CSV ใน public/ แล้วคืน rows เป็น Promise
@@ -24,7 +26,14 @@ const loadCsv = (name) =>
     })
   })
 
+const TABS = [
+  { id: 'overview', label: 'ภาพรวม' },
+  { id: 'lab2', label: 'Lab 2.2 · ซ่อมกราฟ' },
+]
+
 function App() {
+  const [tab, setTab] = useState(() => TABS.find((t) => `#${t.id}` === location.hash)?.id ?? 'overview')
+  const [products, setProducts] = useState([])
   const [dashboard, setDashboard] = useState(null)
   const [fileName, setFileName] = useState('')
   const [skipped, setSkipped] = useState(0)
@@ -80,6 +89,17 @@ function App() {
     })
   }, [])
 
+  useEffect(() => {
+    loadCsv('products.csv').then(setProducts, () => setProducts([]))
+  }, [])
+
+  const lab2Rows = useMemo(() => toLab2Rows(salesRows), [salesRows])
+
+  function chooseTab(id) {
+    setTab(id)
+    history.replaceState(null, '', `#${id}`)
+  }
+
   // ข้อมูลสมาชิก: โหลด customers.csv + branches.csv แล้ว join กับแถวขายเมื่อ sales พร้อม
   useEffect(() => {
     if (!dashboard) return
@@ -115,19 +135,35 @@ function App() {
           <h1 className="text-3xl font-bold">บ้านบรู Dashboard</h1>
         </header>
 
-        {error && (
+        <nav className="flex gap-1 overflow-x-auto border-b border-ink/10 pb-2">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => chooseTab(t.id)}
+              className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium ${
+                tab === t.id ? 'bg-brew text-white' : 'text-ink/70 hover:bg-ink/10'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+
+        {tab === 'lab2' && dashboard && <Lab2Page rows={lab2Rows} products={products} />}
+
+        {tab === 'overview' && error && (
           <p role="alert" className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-red-800">
             {error}
           </p>
         )}
 
-        {skipped > 0 && dashboard && (
+        {tab === 'overview' && skipped > 0 && dashboard && (
           <p className="text-sm text-ink/60">
             ข้ามไป {skipped.toLocaleString('en-US')} แถวที่ order_id, datetime, qty หรือ unit_price อ่านไม่ได้
           </p>
         )}
 
-        {dashboard && (
+        {tab === 'overview' && dashboard && (
           <>
             <Kpis data={dashboard} />
             <DailySalesChart daily={dashboard.daily} />
@@ -135,13 +171,13 @@ function App() {
           </>
         )}
 
-        {customerError && (
+        {tab === 'overview' && customerError && (
           <p role="alert" className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-red-800">
             {customerError}
           </p>
         )}
 
-        {customerData && (
+        {tab === 'overview' && customerData && (
           <>
             <div>
               <h2 className="text-2xl font-bold">สมาชิก</h2>
