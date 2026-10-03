@@ -10,6 +10,7 @@ import { BranchTable, TopMembersTable } from './components/MemberTables'
 import { buildDashboard, cleanHeader, cleanRows, findMissingColumns } from './lib/metrics'
 import { buildCustomerDashboard, cleanBranches, cleanCustomers } from './lib/customerMetrics'
 import Lab2Page from './lab2/Lab2Page'
+import LiveTab from './lab3/LiveTab'
 import { toLab2Rows } from './lab2/lab2Utils'
 import { formatBaht, formatNumber } from './lib/format'
 
@@ -29,6 +30,7 @@ const loadCsv = (name) =>
 const TABS = [
   { id: 'overview', label: 'ภาพรวม' },
   { id: 'lab2', label: 'Lab 2.2 · ซ่อมกราฟ' },
+  { id: 'live', label: 'ยอดขายสด' },
 ]
 
 function App() {
@@ -148,6 +150,8 @@ function App() {
             </button>
           ))}
         </nav>
+
+        {tab === 'live' && <LiveTab />}
 
         {tab === 'lab2' && dashboard && <Lab2Page rows={lab2Rows} products={products} />}
 
