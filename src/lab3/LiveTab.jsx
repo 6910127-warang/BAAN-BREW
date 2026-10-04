@@ -1,13 +1,14 @@
 // Lab 3.2 · Dashboard ยอดขายแบบ real-time จาก Firestore (collection "sales")
 // สูตรคำนวณทั้งหมดใช้จาก ../lib/metrics.js (cleanRows + buildDashboard) ไม่เขียนซ้ำ
 import { useEffect, useMemo, useRef, useState } from "react";
-import { collection, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import { collection, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { db, isConfigured } from "./firebase.js";
 import { addDays, todayBangkok } from "./time.js";
 import { BRANCHES } from "./saleModel.js";
 import { buildDashboard, cleanRows } from "../lib/metrics";
 import { formatBaht, formatNumber } from "../lib/format";
+import SaleForm from "./SaleForm.jsx";
 import Kpis from "../components/Kpis";
 import DailySalesChart from "../components/DailySalesChart";
 import SimpleBarChart from "../components/SimpleBarChart";
@@ -36,7 +37,17 @@ export default function LiveTab() {
   const [error, setError] = useState("");
   const [readCount, setReadCount] = useState(0);
   const [fresh, setFresh] = useState(() => new Set());
+  const [products, setProducts] = useState([]);
+  const [productsError, setProductsError] = useState("");
   const timers = useRef(new Set());
+
+  // โหลดเมนูครั้งเดียวสำหรับฟอร์มบันทึกยอดขาย
+  useEffect(() => {
+    if (!db) return;
+    getDocs(collection(db, "products"))
+      .then((snap) => setProducts(snap.docs.map((d) => d.data())))
+      .catch((e) => setProductsError(errorMessage(e)));
+  }, []);
 
   useEffect(() => {
     if (!db) return undefined;
@@ -127,7 +138,8 @@ export default function LiveTab() {
   const empty = !loading && !error && visible.length === 0;
 
   return (
-    <div className="space-y-4">
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
+    <div className="min-w-0 space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold">ยอดขายสด</h1>
         <div role="group" aria-label="ช่วงเวลา" className="flex overflow-hidden rounded-lg border border-ink/15">
@@ -233,6 +245,14 @@ export default function LiveTab() {
           </section>
         </>
       )}
+    </div>
+    <aside className="lg:sticky lg:top-4">
+      {productsError ? (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">❌ โหลดเมนูไม่สำเร็จ: {productsError}</p>
+      ) : (
+        <SaleForm products={products} />
+      )}
+    </aside>
     </div>
   );
 }
