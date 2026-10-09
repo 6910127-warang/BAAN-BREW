@@ -33,6 +33,7 @@ const errorMessage = (e) => ERROR_TEXT[e?.code] ?? `เกิดข้อผิ�
 const AUTH_ERROR_TEXT = {
   "auth/unauthorized-domain": "โดเมนนี้ยังไม่ได้รับอนุญาต เพิ่มโดเมนใน Firebase Console → Authentication → Settings → Authorized domains",
   "auth/operation-not-allowed": "ยังไม่ได้เปิดใช้การเข้าสู่ระบบด้วย Google ใน Firebase Console → Authentication → Sign-in method",
+  "auth/configuration-not-found": "โปรเจกต์ Firebase ยังไม่ได้เริ่มใช้ Authentication ไปที่ Firebase Console → Authentication → Get started แล้วเปิด Google ใน Sign-in method",
   "auth/popup-blocked": "เบราว์เซอร์บล็อกหน้าต่างล็อกอิน กรุณาอนุญาต pop-up แล้วลองใหม่",
   "auth/popup-closed-by-user": "ปิดหน้าต่างล็อกอินก่อนเสร็จสิ้น ลองใหม่อีกครั้ง",
 };
