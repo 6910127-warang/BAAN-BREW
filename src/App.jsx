@@ -11,6 +11,7 @@ import { buildDashboard, cleanHeader, cleanRows, findMissingColumns } from './li
 import { buildCustomerDashboard, cleanBranches, cleanCustomers } from './lib/customerMetrics'
 import Lab2Page from './lab2/Lab2Page'
 import LiveTab from './lab3/LiveTab'
+import RulesTester from './lab3/RulesTester'
 import { toLab2Rows } from './lab2/lab2Utils'
 import { formatBaht, formatNumber } from './lib/format'
 
@@ -31,6 +32,7 @@ const TABS = [
   { id: 'overview', label: 'ภาพรวม' },
   { id: 'lab2', label: 'Lab 2.2 · ซ่อมกราฟ' },
   { id: 'live', label: 'ยอดขายสด' },
+  { id: 'rules', label: 'ทดสอบ Rules' },
 ]
 
 function App() {
@@ -152,6 +154,7 @@ function App() {
         </nav>
 
         {tab === 'live' && <LiveTab />}
+        {tab === 'rules' && <RulesTester />}
 
         {tab === 'lab2' && dashboard && <Lab2Page rows={lab2Rows} products={products} />}
 
