@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { collection, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { db, isConfigured } from "./firebase.js";
+import { onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
+import { auth, db, googleProvider, isConfigured } from "./firebase.js";
 import { addDays, todayBangkok } from "./time.js";
 import { BRANCHES } from "./saleModel.js";
 import { buildDashboard, cleanRows } from "../lib/metrics";
@@ -29,7 +30,73 @@ const ERROR_TEXT = {
 };
 const errorMessage = (e) => ERROR_TEXT[e?.code] ?? `เกิดข้อผิดพลาด: ${e?.message ?? "ไม่ทราบสาเหตุ"}`;
 
+const AUTH_ERROR_TEXT = {
+  "auth/unauthorized-domain": "โดเมนนี้ยังไม่ได้รับอนุญาต เพิ่มโดเมนใน Firebase Console → Authentication → Settings → Authorized domains",
+  "auth/operation-not-allowed": "ยังไม่ได้เปิดใช้การเข้าสู่ระบบด้วย Google ใน Firebase Console → Authentication → Sign-in method",
+  "auth/popup-blocked": "เบราว์เซอร์บล็อกหน้าต่างล็อกอิน กรุณาอนุญาต pop-up แล้วลองใหม่",
+  "auth/popup-closed-by-user": "ปิดหน้าต่างล็อกอินก่อนเสร็จสิ้น ลองใหม่อีกครั้ง",
+};
+const authErrorMessage = (e) => AUTH_ERROR_TEXT[e?.code] ?? `เข้าสู่ระบบไม่สำเร็จ: ${e?.message ?? "ไม่ทราบสาเหตุ"}`;
+
+// ด่านล็อกอิน: ยังไม่ล็อกอินจะไม่ render Dashboard (จึงไม่เริ่ม onSnapshot)
 export default function LiveTab() {
+  const [user, setUser] = useState(null);
+  const [checking, setChecking] = useState(true);
+  const [authError, setAuthError] = useState("");
+
+  useEffect(() => {
+    if (!auth) return undefined;
+    return onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setChecking(false);
+    });
+  }, []);
+
+  async function handleSignIn() {
+    setAuthError("");
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } catch (e) {
+      setAuthError(authErrorMessage(e));
+    }
+  }
+
+  async function handleSignOut() {
+    setAuthError("");
+    try {
+      await signOut(auth);
+    } catch (e) {
+      setAuthError(authErrorMessage(e));
+    }
+  }
+
+  if (!isConfigured) {
+    return (
+      <div className="rounded-lg border border-ink/15 bg-white p-6">
+        <p className="text-red-700">❌ ยังไม่ได้ตั้งค่า Firebase ใน .env (ดู .env.example)</p>
+      </div>
+    );
+  }
+
+  if (checking) return <p className="text-ink/60">กำลังตรวจสอบการเข้าสู่ระบบ…</p>;
+
+  if (!user) {
+    return (
+      <div className="mx-auto max-w-sm space-y-4 rounded-lg border border-ink/15 bg-white p-6 text-center">
+        <h1 className="text-xl font-bold">ยอดขายสด</h1>
+        <p className="text-sm text-ink/70">เข้าสู่ระบบเพื่อดู Dashboard และบันทึกยอดขาย</p>
+        <button type="button" onClick={handleSignIn} className="w-full rounded-lg bg-brew px-4 py-2 text-sm text-white">
+          เข้าสู่ระบบด้วย Google
+        </button>
+        {authError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-left text-sm text-red-700">❌ {authError}</p>}
+      </div>
+    );
+  }
+
+  return <LiveDashboard user={user} onSignOut={handleSignOut} authError={authError} />;
+}
+
+function LiveDashboard({ user, onSignOut, authError }) {
   const [rangeId, setRangeId] = useState("7d");
   const [branch, setBranch] = useState("");
   const [docs, setDocs] = useState([]); // [{ id, ...data }]
@@ -126,14 +193,6 @@ export default function LiveTab() {
     [visible],
   );
 
-  if (!isConfigured) {
-    return (
-      <div className="rounded-lg border border-ink/15 bg-white p-6">
-        <p className="text-red-700">❌ ยังไม่ได้ตั้งค่า Firebase ใน .env (ดู .env.example)</p>
-      </div>
-    );
-  }
-
   const isToday = rangeId === "today";
   const empty = !loading && !error && visible.length === 0;
 
@@ -142,6 +201,13 @@ export default function LiveTab() {
     <div className="min-w-0 space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-2xl font-bold">ยอดขายสด</h1>
+        <div className="order-last flex items-center gap-2 text-sm">
+          {user.photoURL && <img src={user.photoURL} alt="" referrerPolicy="no-referrer" className="h-8 w-8 rounded-full" />}
+          <span className="max-w-[10rem] truncate">{user.displayName ?? user.email}</span>
+          <button type="button" onClick={onSignOut} className="rounded-lg border border-ink/15 bg-white px-3 py-1 hover:bg-ink/5">
+            ออกจากระบบ
+          </button>
+        </div>
         <div role="group" aria-label="ช่วงเวลา" className="flex overflow-hidden rounded-lg border border-ink/15">
           {RANGES.map((r) => (
             <button
@@ -169,6 +235,7 @@ export default function LiveTab() {
         <span className="ml-auto text-sm text-ink/60">อ่านข้อมูลแล้ว {formatNumber(readCount)} เอกสาร</span>
       </div>
 
+      {authError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">❌ {authError}</p>}
       {error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">❌ {error}</p>}
       {loading && !error && <p className="text-ink/60">กำลังโหลดข้อมูล…</p>}
       {empty && <p className="rounded-lg border border-ink/15 bg-white p-4 text-ink/70">ยังไม่มียอดขายในช่วงนี้</p>}
@@ -250,7 +317,7 @@ export default function LiveTab() {
       {productsError ? (
         <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">❌ โหลดเมนูไม่สำเร็จ: {productsError}</p>
       ) : (
-        <SaleForm products={products} />
+        <SaleForm products={products} uid={user.uid} />
       )}
     </aside>
     </div>

@@ -6,7 +6,6 @@ import { BRANCHES, PAYMENTS, MAX_QTY, buildSale, validateSaleForm } from "./sale
 import { formatBaht } from "../lib/format";
 
 const EMPTY = { branch: "", product_id: "", qty: "1", payment_method: "", customer_id: "" };
-const UID = "anonymous"; // Lab 3.3 จะเปลี่ยนเป็นผู้ใช้ที่ล็อกอิน
 
 const inputClass = "mt-1 w-full rounded-lg border border-ink/15 bg-white px-3 py-1.5 text-sm";
 
@@ -20,7 +19,7 @@ function Field({ label, error, children }) {
   );
 }
 
-export default function SaleForm({ products }) {
+export default function SaleForm({ products, uid }) {
   const [form, setForm] = useState(EMPTY);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
@@ -38,7 +37,7 @@ export default function SaleForm({ products }) {
     setErrors(found);
     if (Object.keys(found).length > 0) return;
 
-    const { id, data } = buildSale(form, product, { uid: UID });
+    const { id, data } = buildSale(form, product, { uid });
     setSaving(true);
     try {
       await setDoc(doc(db, "sales", id), { ...data, created_at: serverTimestamp() });
