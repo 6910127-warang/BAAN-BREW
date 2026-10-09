@@ -1,0 +1,89 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ผู้ใช้ที่ล็อกอินแล้ว (Firebase Auth) เท่านั้น
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // ตรวจเอกสารยอดขายใหม่ ให้ตรงกับ buildSale() ใน src/lab3/saleModel.js + created_at
+    function validSale(d) {
+      return
+        // 1) ฟิลด์ครบทุกตัว (hasAll) และห้ามมีฟิลด์เกินจากนี้ (hasOnly)
+        d.keys().hasAll([
+          'order_id', 'datetime', 'date', 'hour', 'branch', 'product_id', 'qty',
+          'unit_price', 'revenue', 'payment_method', 'channel', 'customer_id',
+          'source', 'created_by', 'created_at'
+        ])
+        && d.keys().hasOnly([
+          'order_id', 'datetime', 'date', 'hour', 'branch', 'product_id', 'qty',
+          'unit_price', 'revenue', 'payment_method', 'channel', 'customer_id',
+          'source', 'created_by', 'created_at'
+        ])
+
+        // 2) ต้องมาจากเว็บ และผู้สร้างต้องเป็นคนที่ล็อกอินอยู่จริง (ปลอม uid คนอื่นไม่ได้)
+        && d.source == 'web'
+        && d.created_by == request.auth.uid
+
+        // 3) created_at ต้องเป็นเวลาของเซิร์ฟเวอร์ (serverTimestamp()) ห้ามส่งเวลาเอง
+        && d.created_at == request.time
+
+        // 4) สาขาต้องเป็นหนึ่งใน 5 สาขา
+        && d.branch in ['สยาม', 'สีลม', 'อารีย์', 'บางนา', 'มหาวิทยาลัย']
+
+        // 5) วิธีชำระเงินต้องเป็นหนึ่งใน 5 แบบ
+        && d.payment_method in ['QR พร้อมเพย์', 'บัตรเครดิต', 'เงินสด', 'LINE MAN', 'Grab']
+
+        // 6) channel ต้องสอดคล้องกับวิธีชำระเงิน (LINE MAN/Grab = เดลิเวอรี ไม่งั้น = หน้าร้าน)
+        && d.channel == (d.payment_method in ['LINE MAN', 'Grab'] ? 'เดลิเวอรี' : 'หน้าร้าน')
+
+        // 7) qty ต้องเป็นจำนวนเต็ม 1–20
+        && d.qty is int && d.qty >= 1 && d.qty <= 20
+
+        // 8) hour ต้องเป็นจำนวนเต็ม 0–23
+        && d.hour is int && d.hour >= 0 && d.hour <= 23
+
+        // 9) unit_price ต้องตรงกับราคาปัจจุบันใน products/{product_id} (กันแก้ราคาจากฝั่งเบราว์เซอร์)
+        && d.product_id is string
+        && d.unit_price == get(/databases/$(database)/documents/products/$(d.product_id)).data.price
+
+        // 10) revenue ต้องเท่ากับ qty * unit_price พอดี
+        && d.revenue == d.qty * d.unit_price
+
+        // 11) date ต้องเป็นรูปแบบ YYYY-MM-DD
+        && d.date is string
+        && d.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+
+        // 12) datetime ต้องเป็นเวลาไทย รูปแบบ YYYY-MM-DDTHH:MM:SS+07:00
+        && d.datetime is string
+        && d.datetime.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\+07:00$')
+
+        // 13) customer_id เป็น null (ไม่ใช่สมาชิก) หรือ C ตามด้วยเลข 5 หลัก
+        && (d.customer_id == null
+            || (d.customer_id is string && d.customer_id.matches('^C\\d{5}$')));
+    }
+
+    // เมนู: ล็อกอินแล้วอ่านได้ · เขียนไม่ได้จากเว็บ (แก้ผ่าน admin script/seed เท่านั้น)
+    match /products/{productId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // สาขา: ล็อกอินแล้วอ่านได้ · เขียนไม่ได้จากเว็บ
+    match /branches/{branchId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // ยอดขาย: ล็อกอินแล้วอ่านได้ · สร้างได้ถ้าข้อมูลผ่าน validSale · แก้ไข/ลบไม่ได้เด็ดขาด
+    match /sales/{saleId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && validSale(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // collection อื่นทั้งหมด: ปฏิเสธ (deny by default)
+  }
+}
