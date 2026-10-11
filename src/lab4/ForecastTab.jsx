@@ -1,11 +1,12 @@
 // Lab 4.4–4.5 · พยากรณ์ & ผิดปกติ: พยากรณ์ยอดขายรายสาขา (พร้อมย้อนทดสอบ) และวันที่ยอดขายผิดปกติ
 import { useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, ComposedChart, Line, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import AuthGate from "../lab3/AuthGate.jsx";
 import { BRANCHES } from "../lab3/saleModel.js";
 import { toSeries } from "../lib/analytics/daily.js";
 import { backtest, mape, seasonalForecast, weeklyTotals } from "../lib/analytics/forecast.js";
-import { topAnomalies } from "../lib/analytics/anomaly.js";
+import { scoreAnomalies, topAnomalies } from "../lib/analytics/anomaly.js";
+import { addDays } from "../lab3/time.js";
 import { formatBaht, formatNumber, formatShortDate } from "../lib/format";
 import useAnalytics from "./useAnalytics.js";
 
@@ -267,6 +268,8 @@ function AnomalySection({ daily, holidays, branch }) {
     () => topAnomalies(branch ? daily.filter((d) => d.branch === branch) : daily, holidays, 15),
     [daily, holidays, branch],
   );
+  const [focus, setFocus] = useState(null);
+  const toggle = (a) => setFocus((f) => (f && f.date === a.date && f.branch === a.branch ? null : a));
 
   return (
     <section className="space-y-3">
@@ -276,6 +279,7 @@ function AnomalySection({ daily, holidays, branch }) {
           เทียบกับค่ากลางของวันเดียวกันในสัปดาห์ 8 สัปดาห์ก่อน (ไม่รวมวันหยุดราชการ) · เรียงจากผิดปกติมากไปน้อย
         </p>
       </div>
+      {focus && <AnomalyChart daily={daily} holidays={holidays} focus={focus} onClose={() => setFocus(null)} />}
       <div className="overflow-x-auto rounded-lg border border-ink/15 bg-white p-4 sm:p-6">
         <table className="w-full text-left text-sm">
           <thead className="text-ink/60">
@@ -289,7 +293,12 @@ function AnomalySection({ daily, holidays, branch }) {
           </thead>
           <tbody>
             {rows.map((a) => (
-              <tr key={`${a.date}-${a.branch}`} className="border-t border-ink/10">
+              <tr
+                key={`${a.date}-${a.branch}`}
+                onClick={() => toggle(a)}
+                aria-selected={focus?.date === a.date && focus?.branch === a.branch}
+                className={`cursor-pointer border-t border-ink/10 hover:bg-ink/5 ${focus?.date === a.date && focus?.branch === a.branch ? "bg-ink/10" : ""}`}
+              >
                 <td className="py-2 pr-4 tabular-nums">{a.date}</td>
                 <td className="py-2 pr-4">{a.branch}</td>
                 <td className="py-2 pr-4 text-right tabular-nums">{formatBaht(a.actual)}</td>
@@ -303,5 +312,57 @@ function AnomalySection({ daily, holidays, branch }) {
         </table>
       </div>
     </section>
+  );
+}
+
+const WINDOW_DAYS = 28;
+
+function AnomalyChart({ daily, holidays, focus, onClose }) {
+  const chart = useMemo(() => {
+    const rows = daily.filter((d) => d.branch === focus.branch);
+    const sums = new Map();
+    for (const d of rows) sums.set(d.date, (sums.get(d.date) ?? 0) + d.revenue);
+    const dates = [...sums.keys()].sort();
+    const first = dates[0];
+    const last = dates[dates.length - 1];
+    const expected = new Map(scoreAnomalies(rows, holidays).map((a) => [a.date, a.expected]));
+    const out = [];
+    for (let k = -WINDOW_DAYS; k <= WINDOW_DAYS; k++) {
+      const date = addDays(focus.date, k);
+      if (date < first || date > last) continue;
+      out.push({ date, actual: sums.get(date) ?? 0, expected: expected.get(date) ?? null });
+    }
+    return out;
+  }, [daily, holidays, focus]);
+  const color = focus.score < 0 ? "#b91c1c" : "#ea580c";
+
+  return (
+    <div className="rounded-lg border border-ink/15 bg-white p-4 sm:p-6">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3 className="font-semibold">
+          {focus.branch} · {focus.date} (±{WINDOW_DAYS} วัน)
+        </h3>
+        <button type="button" onClick={onClose} className="rounded border border-ink/20 px-3 py-1 text-sm hover:bg-ink/5">
+          ปิด
+        </button>
+      </div>
+      <div className="h-72 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={chart} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+            <CartesianGrid stroke="#1f2a2e" strokeOpacity={0.1} vertical={false} />
+            <XAxis dataKey="date" tickFormatter={formatShortDate} tick={{ fontSize: 12 }} tickLine={false} minTickGap={32} />
+            <YAxis tickFormatter={formatNumber} tick={{ fontSize: 12 }} tickLine={false} axisLine={false} width={56} />
+            <Tooltip
+              labelFormatter={formatShortDate}
+              formatter={(v, n) => [formatBaht(v), n === "actual" ? "ยอดจริง" : "ค่าปกติ"]}
+              contentStyle={{ borderRadius: 8, border: "1px solid rgba(31,42,46,0.15)" }}
+            />
+            <Line dataKey="actual" stroke="#1f2a2e" strokeWidth={2} dot={false} isAnimationActive={false} />
+            <Line dataKey="expected" stroke="#6d28d9" strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls={false} isAnimationActive={false} />
+            <ReferenceDot x={focus.date} y={focus.actual} r={6} fill={color} stroke="#fff" strokeWidth={2} ifOverflow="extendDomain" />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
   );
 }
