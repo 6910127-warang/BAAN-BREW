@@ -1,6 +1,7 @@
 import {
   Bar,
   BarChart,
+  Cell,
   CartesianGrid,
   LabelList,
   ResponsiveContainer,
@@ -13,7 +14,8 @@ import useIsNarrow from '../lib/useIsNarrow'
 const tick = { fontSize: 12, fill: '#1f2a2e', opacity: 0.8 }
 
 // แท่งแนวนอนทั่วไป: data = [{ label, value }], format = ฟังก์ชันแปลงค่าเป็นข้อความ
-export default function SimpleBarChart({ title, subtitle, data, format, tooltipLabel }) {
+// ถ้าส่ง onSelect มา แท่งจะคลิกได้ (data ต้องมี id) · selectedId = แท่งที่เลือกอยู่ ใช้ไฮไลต์
+export default function SimpleBarChart({ title, subtitle, data, format, tooltipLabel, onSelect, selectedId }) {
   const narrow = useIsNarrow()
   const height = Math.max(180, data.length * 44 + 32)
 
@@ -44,7 +46,18 @@ export default function SimpleBarChart({ title, subtitle, data, format, tooltipL
               formatter={(v) => [format(v), tooltipLabel]}
               contentStyle={{ borderRadius: 8, border: '1px solid rgba(31,42,46,0.15)' }}
             />
-            <Bar dataKey="value" fill="#6d28d9" radius={[0, 4, 4, 0]} barSize={22}>
+            <Bar
+              dataKey="value"
+              fill="#6d28d9"
+              radius={[0, 4, 4, 0]}
+              barSize={22}
+              cursor={onSelect ? 'pointer' : undefined}
+              onClick={onSelect ? (d) => onSelect(d.id ?? d.payload?.id) : undefined}
+            >
+              {selectedId != null &&
+                data.map((d) => (
+                  <Cell key={d.id ?? d.label} fill="#6d28d9" fillOpacity={d.id === selectedId ? 1 : 0.35} />
+                ))}
               <LabelList
                 dataKey="value"
                 position="right"

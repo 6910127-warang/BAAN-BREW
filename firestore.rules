@@ -84,6 +84,12 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // สรุปงานวิเคราะห์ (meta, daily, rfm, cohort, abc): ล็อกอินแล้วอ่านได้ · เขียนได้เฉพาะ admin script (npm run analytics)
+    match /analytics/{docId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
     // collection อื่นทั้งหมด: ปฏิเสธ (deny by default)
   }
 }
