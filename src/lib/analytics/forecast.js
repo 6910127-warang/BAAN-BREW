@@ -4,6 +4,30 @@ import { addDays } from "../../lab3/time.js";
 
 const dow = (ymd) => new Date(ymd + "T00:00:00Z").getUTCDay(); // 0 = อาทิตย์
 
+/** วันจันทร์ของสัปดาห์ที่วันนั้นอยู่ (สัปดาห์ จันทร์–อาทิตย์) */
+export const weekStart = (ymd) => addDays(ymd, -((dow(ymd) + 6) % 7));
+
+/**
+ * รวมค่ารายวันเป็นรายสัปดาห์ จันทร์–อาทิตย์ · คืนเฉพาะสัปดาห์ที่มีครบ 7 วัน (สัปดาห์ที่ขาดวันจะทำให้ยอดต่ำกว่าจริง)
+ * @param items  [{ date, ... }] รายวัน
+ * @param pick   (item) => ตัวเลขที่จะรวม
+ * @returns [{ week: วันจันทร์ YYYY-MM-DD, total }] เรียงตามสัปดาห์
+ */
+export function weeklyTotals(items, pick) {
+  const by = new Map();
+  for (const it of items) {
+    const w = weekStart(it.date);
+    const c = by.get(w) ?? { week: w, total: 0, days: 0 };
+    c.total += pick(it);
+    c.days += 1;
+    by.set(w, c);
+  }
+  return [...by.values()]
+    .filter((c) => c.days === 7)
+    .sort((a, b) => a.week.localeCompare(b.week))
+    .map(({ week, total }) => ({ week, total }));
+}
+
 /** ค่าเฉลี่ยยอดขายวันเดียวกันของสัปดาห์ K ครั้งล่าสุด (ฤดูกาลรายสัปดาห์) */
 export function seasonalForecast(series, horizon, K = 8) {
   const byDow = Array.from({ length: 7 }, () => []);
