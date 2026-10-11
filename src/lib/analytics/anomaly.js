@@ -19,7 +19,38 @@ export const median = (xs) => {
  *   { date, branch, actual, expected, change (สัดส่วน เช่น -0.9 = ต่ำกว่าปกติ 90%), score, holiday }
  */
 export function scoreAnomalies(daily, holidays = {}, { weeks = 8, minWeeks = 4, smooth = 1000 } = {}) {
-  throw new Error("ยังไม่ได้ทำ: scoreAnomalies");
+  const byBranch = new Map();
+  for (const d of daily) {
+    const m = byBranch.get(d.branch) ?? new Map();
+    m.set(d.date, (m.get(d.date) ?? 0) + d.revenue);
+    byBranch.set(d.branch, m);
+  }
+
+  const out = [];
+  for (const [branch, sums] of byBranch) {
+    const dates = [...sums.keys()].sort();
+    const last = dates[dates.length - 1];
+    // วันที่ไม่มียอดระหว่างวันแรกถึงวันสุดท้ายนับเป็น 0 (ร้านเปิดแต่ขายไม่ได้ ก็คือความผิดปกติ)
+    const rev = new Map();
+    for (let d = dates[0]; d <= last; d = addDays(d, 1)) rev.set(d, sums.get(d) ?? 0);
+
+    for (const [date, actual] of rev) {
+      const prev = [];
+      for (let k = 1; k <= weeks; k++) {
+        const v = rev.get(addDays(date, -7 * k));
+        if (v !== undefined) prev.push(v);
+      }
+      if (prev.length < minWeeks) continue;
+      const expected = median(prev);
+      out.push({
+        date, branch, actual, expected,
+        change: expected > 0 ? actual / expected - 1 : null,
+        score: Math.log((actual + smooth) / (expected + smooth)),
+        holiday: holidays[date] ?? null,
+      });
+    }
+  }
+  return out.sort((a, b) => Math.abs(b.score) - Math.abs(a.score) || a.date.localeCompare(b.date));
 }
 
 /** อันดับวันผิดปกติที่ควรตรวจสอบ (ไม่รวมวันหยุด) */

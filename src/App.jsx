@@ -12,6 +12,8 @@ import { buildCustomerDashboard, cleanBranches, cleanCustomers } from './lib/cus
 import Lab2Page from './lab2/Lab2Page'
 import LiveTab from './lab3/LiveTab'
 import RulesTester from './lab3/RulesTester'
+import CustomersTab from './lab4/CustomersTab'
+import ForecastTab from './lab4/ForecastTab'
 import { toLab2Rows } from './lab2/lab2Utils'
 import { formatBaht, formatNumber } from './lib/format'
 
@@ -33,6 +35,8 @@ const TABS = [
   { id: 'lab2', label: 'Lab 2.2 · ซ่อมกราฟ' },
   { id: 'live', label: 'ยอดขายสด' },
   { id: 'rules', label: 'ทดสอบ Rules' },
+  { id: 'customers', label: 'ลูกค้า & เมนู' },
+  { id: 'forecast', label: 'พยากรณ์ & ผิดปกติ' },
 ]
 
 function App() {
@@ -155,6 +159,8 @@ function App() {
 
         {tab === 'live' && <LiveTab />}
         {tab === 'rules' && <RulesTester />}
+        {tab === 'customers' && <CustomersTab />}
+        {tab === 'forecast' && <ForecastTab />}
 
         {tab === 'lab2' && dashboard && <Lab2Page rows={lab2Rows} products={products} />}
 

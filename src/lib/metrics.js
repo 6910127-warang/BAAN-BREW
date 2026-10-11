@@ -143,3 +143,31 @@ export function buildDashboard(rows) {
     lastDate: daily[daily.length - 1]?.date ?? null,
   }
 }
+
+/**
+ * แถวสำหรับงานวิเคราะห์ (src/lib/analytics): ใช้ชื่อฟิลด์ snake_case เหมือนเอกสาร sales ใน Firestore
+ * คืน { order_id, datetime, date, branch, product_id, customer_id, revenue } ข้ามแถวที่อ่านไม่ได้เหมือน cleanRows
+ * customer_id ว่าง = "" (ไม่ใช่สมาชิก)
+ */
+export function prepareRows(rawRows) {
+  const rows = []
+  for (const r of rawRows) {
+    const orderId = String(r.order_id ?? '').trim()
+    const datetime = String(r.datetime ?? '').trim()
+    const date = toThaiDateKey(datetime)
+    const qty = toNumber(r.qty)
+    const unitPrice = toNumber(r.unit_price)
+    if (!orderId || !date || !Number.isFinite(qty) || !Number.isFinite(unitPrice)) continue
+
+    rows.push({
+      order_id: orderId,
+      datetime,
+      date,
+      branch: String(r.branch ?? '').trim() || 'ไม่ระบุสาขา',
+      product_id: String(r.product_id ?? '').trim(),
+      customer_id: String(r.customer_id ?? '').trim(),
+      revenue: qty * unitPrice,
+    })
+  }
+  return rows
+}
